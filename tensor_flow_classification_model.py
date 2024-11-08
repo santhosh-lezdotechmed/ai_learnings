@@ -6,7 +6,7 @@ from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from sklearn.model_selection import train_test_split
 
-# Sample text data
+
 texts = [
     'I love this product',
     'This is the worst purchase I made',
@@ -18,10 +18,8 @@ texts = [
     'Terrible experience, never again'
 ]
 
-# Sample labels (1 = positive, 0 = negative)
 labels = [1, 0, 1, 0, 1, 0, 1, 0]
 
-# Step 1: Tokenize the text (convert words into integers)
 tokenizer = Tokenizer(num_words=5000)  # Use top 5000 most frequent words
 tokenizer.fit_on_texts(texts)
 sequences = tokenizer.texts_to_sequences(texts)
@@ -51,13 +49,10 @@ model.add(Dropout(0.5))
 # Output layer for classification (binary classification)
 model.add(Dense(1, activation='sigmoid'))
 
-# Step 6: Compile the model
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# Step 7: Train the model
 model.fit(X_train, y_train, epochs=5, batch_size=2, validation_data=(X_test, y_test))
 
-# Step 8: Evaluate the model
 loss, accuracy = model.evaluate(X_test, y_test)
 print(f"Test Loss: {loss}")
 print(f"Test Accuracy: {accuracy}")

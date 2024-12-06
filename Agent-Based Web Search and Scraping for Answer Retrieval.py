@@ -4,8 +4,8 @@ from langchain.tools import DuckDuckGoSearchResults
 from tavily import TavilyClient
 
 # Manually set the API keys
-tavily_api_key = "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"
-claude_api_key = "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"
+tavily_api_key = "nothing"
+claude_api_key = "nope"
 
 # Initialize Tavily client
 tavily_client = TavilyClient(api_key=tavily_api_key)

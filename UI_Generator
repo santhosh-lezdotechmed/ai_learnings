@@ -1,0 +1,355 @@
+import json
+import ollama
+import re
+import sys
+from pathlib import Path
+from datetime import datetime
+import webbrowser
+
+class Color:
+    PURPLE = '\033[95m'
+    CYAN = '\033[96m'
+    DARKCYAN = '\033[36m'
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    END = '\033[0m'
+
+def print_header():
+    """Display a beautiful header for the application"""
+    print(f"\n{Color.BLUE}{Color.BOLD}🌟 AI UI Design Generator {Color.END}")
+    print(f"{Color.CYAN}──────────────────────────────{Color.END}\n")
+
+def get_mistral_response(prompt, model="mistral", max_retries=3):
+    """Send a request to Mistral via Ollama API with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            response = ollama.chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0.7}
+            )
+            
+            if response and "message" in response and "content" in response["message"]:
+                return response["message"]["content"]
+            
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"\n{Color.RED}❌ Ollama API Error: {str(e)}{Color.END}")
+                return None
+            print(f"{Color.YELLOW}⚠️ Retrying API call... (Attempt {attempt + 1}/{max_retries}){Color.END}")
+    
+    print(f"\n{Color.RED}❌ Failed to get valid response after {max_retries} attempts{Color.END}")
+    return None
+
+def validate_and_clean_json(response):
+    """Thoroughly validate and clean JSON response with detailed error reporting"""
+    try:
+        # First try parsing directly if it's pure JSON
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            pass
+        
+        # Extract JSON from markdown code block
+        json_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", response, re.DOTALL)
+        
+        if json_match:
+            json_text = json_match.group(1).strip()
+        else:
+            # Fallback: Find first { or [ and last } or ]
+            json_start = max(response.find("{"), response.find("["))
+            json_end = max(response.rfind("}"), response.rfind("]")) + 1
+            
+            if json_start != -1 and json_end > json_start:
+                json_text = response[json_start:json_end].strip()
+            else:
+                raise ValueError("No valid JSON structure found in response")
+
+        # Clean common JSON issues
+        json_text = re.sub(r'"\.\.\."', 'null', json_text)  # Replace ... with null
+        json_text = re.sub(r",\s*([}\]])", r"\1", json_text)  # Remove trailing commas
+        json_text = re.sub(r"'(.*?)'", r'"\1"', json_text)  # Replace single quotes with double
+        
+        # Handle unquoted property names
+        json_text = re.sub(r'([{,]\s*)(\w+)(\s*:)', r'\1"\2"\3', json_text)
+        
+        return json.loads(json_text)
+    
+    except json.JSONDecodeError as e:
+        error_context = 50
+        error_pos = e.pos
+        start = max(0, error_pos - error_context)
+        end = min(len(json_text), error_pos + error_context)
+        context = json_text[start:end]
+        
+        print(f"\n{Color.RED}❌ JSON Parsing Error:{Color.END}")
+        print(f"- Error: {e.msg}")
+        print(f"- Position: {error_pos}")
+        print(f"- Context: ...{context}...")
+        raise ValueError("Invalid JSON format") from e
+
+def generate_design_options(design_request):
+    """Generate multiple UI design options based on user request"""
+    prompt = f"""
+    **Role**: You are an expert UI/UX designer with 10+ years of experience creating beautiful, functional interfaces for Fortune 500 companies.
+
+    **Task**: Generate 3 distinct, production-ready website UI concepts based on: "{design_request}"
+
+    **Output Requirements**:
+    - Return ONLY valid JSON array with 3 design options
+    - Each option must include ALL specified fields
+    - No explanations or additional text outside JSON
+
+    **Design Option Structure**:
+    {{
+        "title": "Descriptive name (max 5 words)",
+        "theme": "Theme description (e.g., Modern Minimalist, Dark Futuristic)",
+        "layout": {{
+            "type": "Layout type (Figma-style: e.g., 12-column grid, Flexbox, CSS Grid)",
+            "structure": "Detailed structure (Header/Hero/Main/Footer components)"
+        }},
+        "color_palette": {{
+            "primary": "Hex code",
+            "secondary": "Hex code",
+            "accent": "Hex code",
+            "background": "Hex code",
+            "text": "Hex code"
+        }},
+        "typography": {{
+            "heading": "Font name + fallbacks",
+            "body": "Font name + fallbacks",
+            "code": "Font name for code (if applicable)"
+        }},
+        "components": [
+            {{
+                "name": "Component name",
+                "description": "Detailed description",
+                "features": ["List", "of", "features"]
+            }}
+        ],
+        "animations": {{
+            "type": "Animation types (e.g., GSAP, CSS transitions)",
+            "elements": ["Which elements", "have animations"]
+        }},
+        "accessibility": {{
+            "contrast_ratio": "WCAG compliance level",
+            "keyboard_nav": true/false,
+            "aria_usage": "ARIA attributes usage"
+        }},
+        "framework": "Preferred CSS framework (TailwindCSS, Bootstrap, Pure CSS)",
+        "ux_review": {{
+            "strengths": ["List", "of", "strengths"],
+            "improvements": ["List", "of", "suggested", "improvements"],
+            "compliance": ["WCAG", "other", "standards"]
+        }}
+    }}
+
+    **Important**:
+    - All color values must be valid HEX codes
+    - Fonts must be from Google Fonts or system fonts
+    - Components should reflect real-world usage
+    - No placeholder text - use realistic content examples
+    - Ensure designs are production-ready
+
+    **Response Format**:
+    ```json
+    [...]
+    ```
+    """
+    
+    response = get_mistral_response(prompt)
+    if not response:
+        return None
+    
+    try:
+        return validate_and_clean_json(response)
+    except ValueError as e:
+        print(f"{Color.RED}❌ Failed to generate valid design options: {e}{Color.END}")
+        return None
+
+def display_design_options(options):
+    """Display available design options in a user-friendly format"""
+    print(f"\n{Color.GREEN}{Color.BOLD}🎨 Generated Design Options:{Color.END}")
+    
+    for i, design in enumerate(options, 1):
+        print(f"\n{Color.BOLD}{Color.YELLOW}Option {i}: {design['title']}{Color.END}")
+        print(f"  {Color.CYAN}Theme:{Color.END} {design['theme']}")
+        print(f"  {Color.CYAN}Layout:{Color.END} {design['layout']['type']}")
+        
+        colors = design['color_palette']
+        print(f"  {Color.CYAN}Colors:{Color.END} Primary: {colors['primary']} | Secondary: {colors['secondary']}")
+        
+        print(f"  {Color.CYAN}Framework:{Color.END} {design['framework']}")
+        
+        # Display first 3 components
+        components = ", ".join([comp['name'] for comp in design['components'][:3]])
+        if len(design['components']) > 3:
+            components += f" (+{len(design['components'])-3} more)"
+        print(f"  {Color.CYAN}Key Components:{Color.END} {components}")
+        
+        print(f"  {Color.CYAN}UX Review:{Color.END}")
+        for improvement in design['ux_review']['improvements'][:2]:
+            print(f"    - {improvement}")
+
+def generate_html_code(selected_design):
+    """Generate complete HTML/CSS code for the selected design"""
+    prompt = f"""
+    **Role**: You are a senior frontend developer specializing in creating pixel-perfect, responsive UIs.
+
+    **Task**: Generate a complete HTML file with inline CSS for this design:
+    {json.dumps(selected_design, indent=2)}
+
+    **Requirements**:
+    1. FULLY COMPLETE HTML5 document with proper structure
+    2. ALL CSS must be in a <style> tag (no external resources)
+    3. Must include:
+       - Responsive navigation
+       - Hero section
+       - At least 3 content sections
+       - Footer
+    4. Must implement:
+       - Color palette exactly as specified
+       - Typography choices
+       - Key components from the design
+    5. Accessibility features:
+       - Proper ARIA attributes
+       - Keyboard navigation
+       - Sufficient contrast
+    6. Animations as specified in the design
+    7. NO placeholder images - use CSS shapes/colors instead
+    8. NO external dependencies (all self-contained)
+
+    **Technical Specifications**:
+    - Use modern CSS (Flexbox/Grid)
+    - Include hover/focus states for interactive elements
+    - Make it responsive (mobile-first approach)
+    - Add subtle animations where appropriate
+    - Include clear visual hierarchy
+
+    **Output Format**:
+    ```html
+    <!DOCTYPE html>
+    ...
+    </html>
+    ```
+
+    Return ONLY the HTML code wrapped in ```html``` markers.
+    """
+    
+    response = get_mistral_response(prompt, model="mistral")
+    if not response:
+        return None
+    
+    # Extract HTML from markdown code block
+    html_match = re.search(r"```html\s*\n(.*?)\n```", response, re.DOTALL)
+    if html_match:
+        return html_match.group(1).strip()
+    
+    # Fallback: Try to find HTML tags
+    html_start = response.find("<!DOCTYPE html>")
+    if html_start == -1:
+        html_start = response.find("<html")
+    
+    html_end = response.rfind("</html>") + 7 if response.find("</html>") != -1 else -1
+    
+    if html_start != -1 and html_end != -1 and html_end > html_start:
+        return response[html_start:html_end].strip()
+    
+    print(f"{Color.RED}❌ No valid HTML found in response{Color.END}")
+    return None
+
+def save_design(html_code, design_title):
+    """Save the generated HTML to a file with proper naming"""
+    # Create output directory if it doesn't exist
+    output_dir = Path("generated_designs")
+    output_dir.mkdir(exist_ok=True)
+    
+    # Generate filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_title = "".join(c if c.isalnum() else "_" for c in design_title)
+    filename = f"design_{safe_title}_{timestamp}.html"
+    filepath = output_dir / filename
+    
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(html_code)
+        return filepath
+    except Exception as e:
+        print(f"{Color.RED}❌ Error saving design: {e}{Color.END}")
+        return None
+
+def main():
+    print_header()
+    
+    # Step 1: Get user input
+    print(f"{Color.BOLD}Describe the website you want to create:{Color.END}")
+    print(f"{Color.DARKCYAN}Examples:{Color.END}")
+    print("- A modern SaaS dashboard for analytics")
+    print("- An elegant restaurant website with online booking")
+    print("- A tech blog with dark mode and code highlighting\n")
+    
+    design_request = input(f"{Color.GREEN}💡 Your design request: {Color.END}")
+    
+    if not design_request.strip():
+        print(f"{Color.RED}❌ Please provide a design description{Color.END}")
+        return
+    
+    # Step 2: Generate design options
+    print(f"\n{Color.YELLOW}⚡ Generating design options...{Color.END}")
+    design_options = generate_design_options(design_request)
+    
+    if not design_options or len(design_options) == 0:
+        print(f"{Color.RED}❌ Failed to generate design options{Color.END}")
+        return
+    
+    display_design_options(design_options)
+    
+    # Step 3: Let user select a design
+    try:
+        choice = input(f"\n{Color.GREEN}Enter the number of the design you want (1-{len(design_options)}): {Color.END}")
+        choice_idx = int(choice) - 1
+        
+        if choice_idx < 0 or choice_idx >= len(design_options):
+            print(f"{Color.RED}❌ Please select a valid option{Color.END}")
+            return
+        
+        selected_design = design_options[choice_idx]
+        print(f"\n{Color.BLUE}Selected: {selected_design['title']}{Color.END}")
+        
+    except ValueError:
+        print(f"{Color.RED}❌ Please enter a valid number{Color.END}")
+        return
+    
+    # Step 4: Generate HTML code
+    print(f"\n{Color.YELLOW}⚡ Generating HTML/CSS code...{Color.END}")
+    html_code = generate_html_code(selected_design)
+    
+    if not html_code:
+        print(f"{Color.RED}❌ Failed to generate HTML code{Color.END}")
+        return
+    
+    # Step 5: Save and open the design
+    filepath = save_design(html_code, selected_design['title'])
+    if filepath:
+        print(f"\n{Color.GREEN}✅ Design saved to: {filepath}{Color.END}")
+        
+        # Try to open in default browser
+        try:
+            webbrowser.open(f"file://{filepath.resolve()}")
+        except Exception as e:
+            print(f"{Color.YELLOW}⚠️ Couldn't open in browser: {e}{Color.END}")
+            print(f"Please open the file manually in your browser")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\n{Color.RED}🚫 Operation cancelled by user{Color.END}")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n{Color.RED}❌ Unexpected error: {e}{Color.END}")
+        sys.exit(1)
